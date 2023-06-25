@@ -1,20 +1,15 @@
-from pydantic import BaseModel, validator
-from typing import Optional 
+from pydantic import BaseModel, root_validator 
 from jinja2 import Template
 
-from abc import ABC, abstractmethod
+class BasePrompt(BaseModel):         
+    template: str
 
-class BasePrompt(BaseModel, ABC):     
+    @root_validator(pre = True)
+    def populate_template_from_docstring_if_absent(cls, values): 
+        if not values.get('template') and cls.__doc__:
+            values['template'] = cls.__doc__
+        return values
     
-    template: Optional[str] = None
-
-    @validator('template', pre = True)
-    def populate_template_from_docstring_if_absent(cls, value): 
-        if not value and cls.__doc__:
-            return(cls.__doc__)
-        return value
-    
-    @abstractmethod
     def render(self, *args, **kwargs):
         if not self.template:
             raise NotImplementedError("No template to render!")

@@ -7,5 +7,5 @@ def get_settings() -> BaseSettings:
     spec = importlib.util.spec_from_file_location('Config', path)
     settings = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(settings)
-    config = settings.Settings()
+    config = settings.Config()
     return config

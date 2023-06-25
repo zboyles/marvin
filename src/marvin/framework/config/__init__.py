@@ -1,4 +1,1 @@
-from pydantic import BaseSettings   
-
-class Settings(BaseSettings):
-    pass
+from .settings import Config

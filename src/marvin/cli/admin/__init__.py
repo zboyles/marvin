@@ -1,6 +1,7 @@
 import typer
 import os 
 import shutil
+from jinja2 import Template
 
 from pathlib import Path
 
@@ -18,7 +19,13 @@ def startproject(no_input: bool = False):
     shutil.copytree(
         source_path,
         os.path.join(os.getcwd(), project_name)     
-    )   
+    )
+    with open(os.path.join(os.getcwd(), project_name, 'config/settings.py'), 'r') as file:
+        template = Template(file.read())
+        rendered = template.render(project_name=project_name)
+    with open(os.path.join(os.getcwd(), project_name, 'config/settings.py'), 'w') as rendered_file:
+        rendered_file.write(rendered)
+
 
 @app.command()
 def startapp(no_input: bool = False):

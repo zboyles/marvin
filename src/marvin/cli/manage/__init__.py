@@ -1,14 +1,17 @@
 import typer
 import subprocess
 import os 
+import importlib
+from .scripts.get_settings import get_settings
 
 app = typer.Typer()
 
-filename = os.path.abspath(__file__)
 
 @app.command()
 def runserver():
-    subprocess.run(["uvicorn", "marvin.api.main:app", "--reload"])
+    config = get_settings()
+    print(config)
+    # subprocess.run(["uvicorn", "marvin.api.main:app", "--reload"])
 
 if __name__ == "__main__":
     app()

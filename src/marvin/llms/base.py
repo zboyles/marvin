@@ -60,7 +60,7 @@ class BaseLanguageModel(ABC):
     def attach(self, router, path: str = '/',  **route_kwargs):
         for route_name, route_kw in self.__api_routes__:
             route_func = getattr(self, route_name)
-            route_defaults = {'endpoint': route_func, 'methods': ['GET'], 'name': route_name}
+            route_defaults = {'endpoint': route_func, 'methods': ['POST'], 'name': route_name}
             router.add_api_route(path, **{**route_defaults, **route_kwargs, **route_kw})
         return None
     

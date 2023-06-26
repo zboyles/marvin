@@ -1,11 +1,13 @@
 
 
-from fastapi.routing import APIRouter
-from typing import Union, Optional
+from typing import Optional
 
-from marvin.agents.utils import resolve_router, add_base_router
-from marvin.prompts.base import BasePrompt
+from fastapi.routing import APIRouter
+from marvin.agents.utils import resolve_router
 from marvin.llms.base import BaseLanguageModel
+from marvin.prompts.base import BasePrompt
+from marvin.utils.pydantic import function_to_json_schema
+
 
 class Agent:
     def __init__(
@@ -20,7 +22,7 @@ class Agent:
         self.function_router.add = self.function_router.post
         self.prompt = prompt or BasePrompt()
         self.language_model = language_model
-        add_base_router(self.router, getattr(self.language_model, "aquery", None))
+        self.language_model.attach(self._router)
 
     @property
     def router(self):
@@ -28,14 +30,15 @@ class Agent:
         return(self._router)
         
     @property
-    def functions(self):
-        # Duplicate of tools, since naming conventions are different.
-        return(self.router)
+    def tools(self):
+        return(self.function_router)
         
     @property
-    def tools(self):
-        # Duplicate of functions, since naming conventions are different.
-        return(self.function_router)
+    def functions(self):
+        return([
+            function_to_json_schema(route.endpoint) 
+            for route in self.function_router.routes
+        ])
     
     @property
     def render(self):

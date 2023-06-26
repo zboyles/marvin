@@ -1,16 +1,21 @@
 from pydantic import BaseModel, root_validator 
 from jinja2 import Template
 
-class BasePrompt(BaseModel):         
-    template: str
+class BasePrompt(BaseModel):
+    'All Prompts that Inherit from BasePrompt use their docstring to prompt.'
 
-    @root_validator(pre = True)
-    def populate_template_from_docstring_if_absent(cls, values): 
-        if not values.get('template') and cls.__doc__:
-            values['template'] = cls.__doc__
-        return values
+    def render(self, seperator = '\n', **kwargs):
+        return(Template(f'{seperator}'.join([
+            getattr(subclass, '__doc__') or '' for subclass in self.get_inherited_prompts()
+        ])).render(self.dict(**kwargs)))
     
-    def render(self, *args, **kwargs):
-        if not self.template:
-            raise NotImplementedError("No template to render!")
-        return(Template(self.template).render(self.dict(*args, **kwargs)))
+    def get_inherited_prompts(self) -> str:
+        """
+        Function to get the inherited prompts
+        """
+        return list(filter(
+            lambda cls: (
+                issubclass(cls, BasePrompt)
+            )
+        , self.__class__.__mro__))[1::-1]
+    

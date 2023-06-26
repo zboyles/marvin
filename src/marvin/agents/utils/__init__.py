@@ -1,13 +1,16 @@
 
 from typing import Union, Callable, Optional
 from fastapi.routing import APIRouter
+from marvin.functions import FunctionRegistry
 
-def resolve_router(router: Union[type, APIRouter]):
+def resolve_router(router: Union[type, APIRouter, FunctionRegistry]):
     if router is None:
         return APIRouter()
     elif router == type:
         return(router())
-    elif type(router) == APIRouter:
+    elif type(router) == type:
+        return(router())
+    elif issubclass(type(router), APIRouter):
         return(router)
     else:
         raise TypeError(

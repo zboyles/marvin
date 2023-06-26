@@ -1,5 +1,6 @@
 from marvin.llms.base import BaseLanguageModelConfig, BaseLanguageModel, api_route
 import openai
+from pydantic import BaseModel
 
 
 class ChatCompletionConfig(BaseLanguageModelConfig):

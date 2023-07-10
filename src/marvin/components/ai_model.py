@@ -1,8 +1,9 @@
 import functools
 from typing import Optional, Type, TypeVar
 
-from pydantic import BaseModel
+from fastapi import APIRouter
 
+from marvin.components.ai_component import AIComponent
 from marvin.engine.executors import OpenAIExecutor
 from marvin.engine.language_models import ChatLLM
 from marvin.prompts import library as prompt_library
@@ -39,7 +40,7 @@ generate_structured_data_prompts = [
 ]
 
 
-class AIModel(LoggerMixin, BaseModel):
+class AIModel(LoggerMixin, AIComponent):
     """Base class for AI models."""
 
     def __init__(
@@ -63,7 +64,7 @@ class AIModel(LoggerMixin, BaseModel):
                 model_ = ChatLLM()
 
             # use the extract constructor to build the class
-            kwargs = self.__class__.extract(
+            kwargs = self.extract(
                 text_=text_,
                 instructions_=instructions_,
                 model_=model_,
@@ -72,71 +73,71 @@ class AIModel(LoggerMixin, BaseModel):
             )
         super().__init__(**kwargs)
 
+    @property
+    def name(self):
+        return self.name
+
+    @property
+    def description(self):
+        return self.description
+
     @classmethod
+    def setup_routes(cls, router: APIRouter):
+        router.add_api_route(
+            path="/extract",
+            summary=cls.description,
+            description=cls.description,
+            endpoint=cls.extract,
+            methods=["POST"],
+            tags=["ai models"],
+        )
+
     def extract(
-        cls,
+        self,
         text_: str = None,
-        *,
         instructions_: str = None,
         model_: ChatLLM = None,
         as_dict_: bool = False,
         **kwargs,
     ):
-        """Class method to extract structured data from text.
+        """Instance method to extract structured data from text."""
 
-        Args:
-            text_: The text to parse into a structured form.
-            instructions_: Additional string instructions to assist the model.
-            model_: The language model to use.
-            as_dict_: Whether to return the result as a dictionary or as an
-                instance of this class.
-            kwargs: Additional keyword arguments to pass to the constructor.
-        """
         if model_ is None:
             model_ = ChatLLM()
         prompts = extract_structured_data_prompts
         if instructions_:
             prompts.append(prompt_library.System(content=instructions_))
         messages = render_prompts(prompts, render_kwargs=dict(input_text=text_))
-        arguments = cls._call_format_response_with_retry(model_, messages)
+        arguments = self._call_format_response_with_retry(model_, messages)
         arguments.update(kwargs)
         if as_dict_:
             return arguments
         else:
-            return cls(**arguments)
+            return self.__class__(**arguments)
 
-    @classmethod
     def generate(
-        cls,
+        self,
         text_: str = None,
-        *,
         instructions_: str = None,
         model_: ChatLLM = None,
         **kwargs,
     ):
-        """Class method to generate structured data from text.
+        """Instance method to generate structured data from text."""
 
-        Args:
-            text_: The text to parse into a structured form.
-            instructions_: Additional instructions to assist the model.
-            model_: The language model to use.
-            kwargs: Additional keyword arguments to pass to the constructor.
-        """
         if model_ is None:
             model_ = ChatLLM()
         prompts = generate_structured_data_prompts
         if instructions_:
             prompts.append(prompt_library.System(content=instructions_))
         messages = render_prompts(prompts, render_kwargs=dict(input_text=text_))
-        arguments = cls._call_format_response_with_retry(model_, messages)
+        arguments = self._call_format_response_with_retry(model_, messages)
         arguments.update(kwargs)
-        return cls(**arguments)
+        return self.__class__(**arguments)
 
-    @classmethod
-    def _call_format_response_with_retry(cls, model, messages):
+    def _call_format_response_with_retry(self, model, messages):
         executor = OpenAIExecutor(
             engine=model,
-            functions=[FormatResponse(type_=cls).as_openai_function()],
+            functions=[FormatResponse(type_=self.__class__).as_openai_function()],
             function_call={"name": "FormatResponse"},
             max_iterations=3,
         )

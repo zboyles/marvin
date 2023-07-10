@@ -3,8 +3,10 @@ import inspect
 import re
 from typing import Callable, TypeVar
 
+from fastapi import APIRouter
 from pydantic import BaseModel
 
+from marvin.components.ai_component import AIComponent
 from marvin.engine.executors import OpenAIExecutor
 from marvin.prompts import library as prompt_library
 from marvin.tools.format_response import FormatResponse
@@ -60,21 +62,43 @@ prompts = [
 ]
 
 
-class AIFunction:
+class AIFunction(AIComponent):
     def __init__(
-        self, *, fn: Callable = None, name: str = None, description: str = None
+        self,
+        *,
+        fn: Callable = None,
+        name: str = None,
+        description: str = None,
+        router_kwargs: dict = None,
     ):
         if fn is None:
             fn = self.run
         self.fn = fn
-
-        self.name = name or fn.__name__
-        self.description = description or fn.__doc__
-
+        self._name = name or fn.__name__
+        self._description = description or fn.__doc__
         super().__init__()
+        self.__signature__ = inspect.signature(self.fn)
 
     def __repr__(self):
         return f"<AIFunction {self.name}>"
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def description(self):
+        return self._description
+
+    def setup_routes(self, router: APIRouter):
+        router.add_api_route(
+            path=f"/{self.name}",
+            summary=self.description,
+            description=self.description,
+            endpoint=self,
+            methods=["GET"],
+            tags=["ai functions"],
+        )
 
     def __call__(self, *args, **kwargs):
         output = self._call(*args, **kwargs)
@@ -132,7 +156,7 @@ class AIFunction:
         raise NotImplementedError()
 
 
-def ai_fn(fn: Callable[[A], T] = None) -> Callable[[A], T]:
+def ai_fn(fn: Callable[[A], T] = None, router_kwargs: dict = None) -> Callable[[A], T]:
     """Decorator that transforms a Python function with a signature and docstring
     into a prompt for an AI to predict the function's output.
 
@@ -152,4 +176,4 @@ def ai_fn(fn: Callable[[A], T] = None) -> Callable[[A], T]:
     # this allows the decorator to be used with or without calling it
     if fn is None:
         return functools.partial(ai_fn)  # , **kwargs)
-    return AIFunction(fn=fn)
+    return AIFunction(fn=fn, router_kwargs=router_kwargs)

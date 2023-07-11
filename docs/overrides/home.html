@@ -5,6 +5,7 @@
 {% block tabs %}
   {{ super() }}
   <style>
+
     .md-header {
       position: initial;
     }
@@ -30,18 +31,19 @@
     }
     
     .hero {
-      padding-top: 144px;
+      padding-top: 72px; /* Reduce the padding-top */
       padding-left: 48px;
       padding-right: 48px;
+      text-align: center; /* Center the text */
     }
     
     .hero h1 {
       font-size: 2.5rem;
-      margin-bottom: 0rem;
+      margin-bottom: 0.5rem; /* Reduce the margin-bottom */
     }
 
     .hero p {
-      margin-bottom: 2rem;
+      margin-bottom: 1rem; /* Reduce the margin-bottom */
     }
     
     .type-heading-md {
@@ -56,14 +58,20 @@
     .mb-6 {
       margin-bottom: 1.5rem;
     }
-    
-    .svelte-4civr7 {
-      /* Add your custom styles here */
+
+
+    .hero-img {
+      max-height: 400px; /* Reduce the max-height */
+      width: auto; /* Adjust the width */
+      height: auto;
+      margin-bottom: 2rem;
     }
+
   </style>
   <section class="mdx-container">
     <div class="md-grid md-typeset">
       <div class="mdx-hero hero">
+        <img src="/img/heroes/ai_model_location.svg" class="hero-img">
         <div class="mdx-hero__content">
           <h1 class="hero-heading">{{ config.site_description }}</h1>
           <p>{{ config.site_copy }}</p>

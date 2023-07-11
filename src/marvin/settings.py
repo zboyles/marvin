@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     verbose: bool = False
 
     # LLMS
-    llm_model: str = "gpt-3.5-turbo-0613"
+    llm_model: str = "gpt-3.5-turbo"
     llm_max_tokens: int = Field(
         1500, description="The max number of tokens for AI completions"
     )
@@ -57,7 +57,8 @@ class Settings(BaseSettings):
     # TOOLS
 
     # chroma
-    chroma_api_url: str = Field(None)
+    chroma_server_host: str = Field(None)
+    chroma_server_http_port: int = Field(None)
 
     # discourse
     discourse_help_category_id: int = Field(None)
@@ -89,7 +90,7 @@ class Settings(BaseSettings):
         if v is not None:
             import openai
 
-            openai.api_key = v
+            openai.api_key = v.get_secret_value()
         return v
 
 

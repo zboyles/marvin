@@ -74,8 +74,9 @@ class AIFunction(AIComponent):
         if fn is None:
             fn = self.run
         self.fn = fn
-        self._name = name or fn.__name__
-        self._description = description or fn.__doc__
+
+        self.name = name or fn.__name__
+        self.description = description or fn.__doc__
         super().__init__()
         self.__signature__ = inspect.signature(self.fn)
 

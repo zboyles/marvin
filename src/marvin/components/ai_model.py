@@ -8,7 +8,8 @@ from marvin.engine.language_models import ChatLLM
 from marvin.prompts import library as prompt_library
 from marvin.prompts import render_prompts
 from marvin.tools.format_response import FormatResponse
-from marvin.utilities.async_utils import run_sync
+from marvin.utilities.async_utils import is_async_context, run_sync
+from marvin.utilities.exceptions import PrefectNotInstalledError
 from marvin.utilities.types import LoggerMixin
 
 T = TypeVar("T")
@@ -158,6 +159,35 @@ class AIModel(LoggerMixin, BaseModel):
             )
 
         return response.data.get("arguments", {})
+
+    @classmethod
+    def map(cls, text_list: list[str], **kwargs) -> list[T]:
+        try:
+            from prefect import flow, task
+        except ImportError:
+            raise PrefectNotInstalledError(
+                "The `map` method for `ai_model` requires Prefect to be installed"
+            )
+
+        @task(name=f"{cls.__name__}_task")
+        async def process_item(text: str):
+            return cls.extract(text, **kwargs)
+
+        @flow(name=f"{cls.__name__}_flow")
+        async def mapped_ai_fn(text_list: list[str]):
+            return await process_item.map(text_list)
+
+        async def get_results():
+            return [
+                await state.result().get() for state in await mapped_ai_fn(text_list)
+            ]
+
+        if is_async_context():
+            # return the awaitable
+            return get_results()
+        else:
+            # run the awaitable and return the results
+            return run_sync(get_results())
 
 
 def ai_model(

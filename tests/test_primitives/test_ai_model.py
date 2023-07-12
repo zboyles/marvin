@@ -2,7 +2,7 @@ from typing import List, Literal, Optional
 
 import pytest
 from marvin import ai_model
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from tests.utils.mark import pytest_mark_class
 
@@ -158,3 +158,36 @@ class TestInstructions:
 
         t2 = Test("Hello")
         assert t2.text == "Bonjour"
+
+
+@pytest_mark_class("llm")
+class TestAIModelsMapping:
+    def test_mapping_sync(self, prefect_db):
+        @ai_model
+        class CardinalDirection(BaseModel):
+            """use a single capital letter for each cardinal direction."""
+
+            direction: str = Field(
+                ..., description="The cardinal direction, e.g. N, S, E, W"
+            )
+            degrees: int
+
+        assert CardinalDirection.map(["sunrise", "sunset"]) == [
+            CardinalDirection(direction="E", degrees=90),
+            CardinalDirection(direction="W", degrees=270),
+        ]
+
+    async def test_mapping_async(self, prefect_db):
+        @ai_model
+        class CardinalDirection(BaseModel):
+            """use a single capital letter for each cardinal direction."""
+
+            direction: str = Field(
+                ..., description="The cardinal direction, e.g. N, S, E, W"
+            )
+            degrees: int
+
+        assert await CardinalDirection.map(["sunrise", "sunset"]) == [
+            CardinalDirection(direction="E", degrees=90),
+            CardinalDirection(direction="W", degrees=270),
+        ]

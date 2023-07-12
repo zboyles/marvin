@@ -1,14 +1,15 @@
 import functools
 import inspect
 import re
-from typing import Callable, TypeVar
+from typing import Any, Callable, Dict, List, TypeVar
 
 from pydantic import BaseModel
 
 from marvin.engine.executors import OpenAIExecutor
 from marvin.prompts import library as prompt_library
 from marvin.tools.format_response import FormatResponse
-from marvin.utilities.async_utils import run_sync
+from marvin.utilities.async_utils import is_async_context, run_sync
+from marvin.utilities.exceptions import PrefectNotInstalledError
 from marvin.utilities.types import safe_issubclass
 
 T = TypeVar("T")
@@ -131,6 +132,41 @@ class AIFunction:
         # Override this to create the AI function as an instance method instead of
         # a passed function
         raise NotImplementedError()
+
+    def map(
+        self,
+        *args,
+        task_kwargs: Dict[str, Any] = None,
+        flow_kwargs: Dict[str, Any] = None,
+        **kwargs,
+    ) -> List[T]:
+        try:
+            from prefect import flow, task
+        except ImportError:
+            raise PrefectNotInstalledError(
+                " The `map` method for `ai_fn` requires Prefect to be installed."
+            )
+
+        @task(**{"name": self.fn.__name__, **(task_kwargs or {})})
+        async def process_item(item: Any):
+            return await self._call(item, **kwargs)
+
+        @flow(**{"name": self.fn.__name__, **(flow_kwargs or {})})
+        async def mapped_ai_fn(*args, **kwargs):
+            return await process_item.map(*args, **kwargs)
+
+        async def get_results():
+            return [
+                await state.result().get()
+                for state in await mapped_ai_fn(*args, **kwargs)
+            ]
+
+        if is_async_context():
+            # return the awaitable
+            return get_results()
+        else:
+            # run the awaitable and return the results
+            return run_sync(get_results())
 
 
 def ai_fn(fn: Callable[[A], T] = None) -> Callable[[A], T]:

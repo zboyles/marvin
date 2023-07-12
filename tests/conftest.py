@@ -39,3 +39,11 @@ def event_loop(request):
             task.cancel()
         loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
         loop.close()
+
+
+@pytest.fixture(scope="session")
+def prefect_db():
+    from prefect.testing.utilities import prefect_test_harness
+
+    with prefect_test_harness():
+        yield

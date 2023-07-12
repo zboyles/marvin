@@ -1,7 +1,7 @@
 from marvin.engine.language_models import ChatLLM
 from marvin.prompts import render_prompts
 from marvin.prompts.library import System, User
-from marvin.utilities.async_utils import run_sync
+from marvin.utilities.async_utils import is_async_context, run_sync
 
 
 class ClassifierSystem(System):
@@ -61,15 +61,19 @@ def ai_classifier(
                 ]
             )
 
-            response = run_sync(
-                model.run(
+            async def get_response():
+                return await model.run(
                     messages=messages,
                     logit_bias={
                         next(iter(model.get_tokens(str(i)))): 100
                         for i in range(1, len(enum_class) + 1)
                     },
                 )
-            )
+
+            if is_async_context():
+                response = get_response()
+            else:
+                response = run_sync(get_response())
             return list(enum_class)[int(response.content) - 1]
 
         enum_class._missing_ = _missing_

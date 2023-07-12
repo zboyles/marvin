@@ -43,3 +43,11 @@ def run_sync(coroutine: Awaitable[T]) -> T:
             return asyncio.run(coroutine)
     except RuntimeError:
         return asyncio.run(coroutine)
+
+
+def is_async_context():
+    try:
+        loop = asyncio.get_event_loop()
+        return loop.is_running()
+    except RuntimeError:
+        return False

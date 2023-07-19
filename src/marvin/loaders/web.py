@@ -95,7 +95,7 @@ class URLLoader(WebLoader):
 
         document = await self.response_to_document(response)
         if document:
-            self.logger.debug(f"Loaded document from {url}")
+            self.logger.info(f"Loaded document from {url}")
         else:
             self.logger.warning_style(f"Could not load document from {url}", "red")
         return document

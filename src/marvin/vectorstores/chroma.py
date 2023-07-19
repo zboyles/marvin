@@ -3,6 +3,7 @@ from functools import lru_cache
 import chromadb
 from chromadb.api.models.Collection import Collection
 from chromadb.api.types import Include, QueryResult
+from chromadb.errors import IDAlreadyExistsError
 
 import marvin
 from marvin.utilities.async_utils import run_async
@@ -70,13 +71,17 @@ class Chroma:
         await run_async(self.client.delete_collection, collection_name=collection_name)
 
     async def add(self, documents: list[Document]) -> int:
-        await run_async(
-            self.collection.add,
-            ids=[document.hash for document in documents],
-            documents=[document.text for document in documents],
-            metadatas=[document.metadata.dict() for document in documents],
-        )
-        return len(documents)
+        try:
+            await run_async(
+                self.collection.add,
+                ids=[document.hash for document in documents],
+                documents=[document.text for document in documents],
+                metadatas=[document.metadata.dict() for document in documents],
+            )
+            return len(documents)
+        except IDAlreadyExistsError:
+            print("Documents already exist in the collection.")
+            return 0
 
     async def query(
         self,
@@ -101,3 +106,11 @@ class Chroma:
 
     async def count(self) -> int:
         return await run_async(self.collection.count)
+
+    async def upsert(self, documents: list[Document]):
+        await run_async(
+            self.collection.upsert,
+            ids=[document.hash for document in documents],
+            documents=[document.text for document in documents],
+            metadatas=[document.metadata.dict() for document in documents],
+        )

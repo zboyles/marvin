@@ -1,17 +1,14 @@
 import re
 from datetime import timedelta
-from typing import Any
 
 import marvin
-from marvin.loaders.github import GitHubRepoLoader
-from marvin.loaders.openapi import OpenAPISpecLoader
-from marvin.loaders.web import HTMLLoader, SitemapLoader
-from marvin.utilities.documents import Document, document_to_excerpts
-from marvin.utilities.logging import get_logger as get_marvin_logger
+from marvin.loaders.base import Loader
+from marvin.loaders.web import SitemapLoader
+from marvin.utilities.documents import Document
 from marvin.vectorstores.chroma import Chroma
 from prefect import flow, task
 from prefect.blocks.core import Block
-from prefect.logging.loggers import forward_logger_to_prefect
+from prefect.filesystems import GCS
 from prefect.tasks import task_input_hash
 from prefect.utilities.annotations import quote
 
@@ -33,43 +30,43 @@ def include_topic_filter(topic) -> bool:
 
 
 prefect_loaders = [
-    SitemapLoader(
-        urls=["https://docs.prefect.io/sitemap.xml"],
-        exclude=["api-ref"],
-    ),
-    OpenAPISpecLoader(
-        openapi_spec_url="https://api.prefect.cloud/api/openapi.json",
-        api_doc_url="https://app.prefect.cloud/api",
-    ),
-    HTMLLoader(
-        urls=[
-            "https://prefect.io/about/company/",
-            "https://prefect.io/security/overview/",
-            "https://prefect.io/security/sub-processors/",
-            "https://prefect.io/security/gdpr-compliance/",
-            "https://prefect.io/security/bug-bounty-program/",
-        ],
-    ),
-    GitHubRepoLoader(
-        repo="prefecthq/prefect",
-        include_globs=["README.md", "RELEASE-NOTES.md"],
-        exclude_globs=[
-            "tests/**/*",
-            "docs/**/*",
-            "**/migrations/**/*",
-            "**/__init__.py",
-            "**/_version.py",
-        ],
-    ),
+    # SitemapLoader(
+    #     urls=["https://docs.prefect.io/sitemap.xml"],
+    #     exclude=["api-ref"],
+    # ),
+    # OpenAPISpecLoader(
+    #     openapi_spec_url="https://api.prefect.cloud/api/openapi.json",
+    #     api_doc_url="https://app.prefect.cloud/api",
+    # ),
+    # HTMLLoader(
+    #     urls=[
+    #         "https://prefect.io/about/company/",
+    #         "https://prefect.io/security/overview/",
+    #         "https://prefect.io/security/sub-processors/",
+    #         "https://prefect.io/security/gdpr-compliance/",
+    #         "https://prefect.io/security/bug-bounty-program/",
+    #     ],
+    # ),
+    # GitHubRepoLoader(
+    #     repo="prefecthq/prefect",
+    #     include_globs=["flows/**", "README.md", "RELEASE-NOTES.md"],
+    #     exclude_globs=[
+    #         "tests/**/*",
+    #         "docs/**/*",
+    #         "**/migrations/**/*",
+    #         "**/__init__.py",
+    #         "**/_version.py",
+    #     ],
+    # ),
     # DiscourseLoader(
     #     url="https://discourse.prefect.io",
-    #     n_topic=500,
+    #     n_topic=300,
     #     include_topic_filter=include_topic_filter,
     # ),
-    GitHubRepoLoader(
-        repo="prefecthq/prefect-recipes",
-        include_globs=["flows-advanced/**/*.py", "README.md"],
-    ),
+    # GitHubRepoLoader(
+    #     repo="prefecthq/prefect-recipes",
+    #     include_globs=["flows-advanced/**/*.py", "README.md"],
+    # ),
     SitemapLoader(
         urls=["https://www.prefect.io/sitemap.xml"],
         include=[re.compile("prefect.io/guide/case-studies/.+")],
@@ -118,24 +115,28 @@ def keyword_extraction_fn(text: str) -> list[str]:
 
 
 @task(
-    name="Load Prefect Documents",
-    retries=1,
+    retries=2,
+    retry_delay_seconds=[3, 60],
     cache_key_fn=task_input_hash,
     cache_expiration=timedelta(days=1),
     task_run_name="Run {loader.__class__.__name__}",
+    persist_result=True,
 )
-async def run_loader(loader: Any) -> list[Document]:
-    return [
-        doc
-        for documents in await loader.load()
-        for doc in await document_to_excerpts(documents)
-    ]
+async def run_loader(loader: Loader) -> list[Document]:
+    return await loader.load()
 
 
-@flow(name="Update Marvin's Knowledge", log_prints=True)
-async def update_marvin_knowledge(collection_name: str = "marvin"):
+@flow(
+    name="Update Marvin's Knowledge",
+    log_prints=True,
+    result_storage=GCS.load("marvin-result-storage"),
+)
+async def update_marvin_knowledge(
+    collection_name: str = "marvin",
+    wipe_collection: bool = True,
+):
     """Flow updating Marvin's knowledge with info from the Prefect community."""
-    forward_logger_to_prefect(get_marvin_logger())
+    # forward_logger_to_prefect(get_marvin_logger())
 
     marvin.settings.html_parsing_fn = html_parser_fn
     marvin.settings.keyword_extraction_fn = keyword_extraction_fn
@@ -147,9 +148,8 @@ async def update_marvin_knowledge(collection_name: str = "marvin"):
     ]
 
     async with Chroma(collection_name) as chroma:
-        # wipe the collection
-        await chroma.delete()
-        # add the documents
+        if wipe_collection:
+            await chroma.delete()
         n_docs = await chroma.add(documents)
 
         print(f"Added {n_docs} documents to the {collection_name} collection.")
@@ -158,4 +158,4 @@ async def update_marvin_knowledge(collection_name: str = "marvin"):
 if __name__ == "__main__":
     import asyncio
 
-    asyncio.run(update_marvin_knowledge("prefect"))
+    asyncio.run(update_marvin_knowledge("prefect", wipe_collection=False))

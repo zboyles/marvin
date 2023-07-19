@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Literal, Union
+from typing import Callable, Literal, Union
 
 from pydantic import BaseSettings, Field, SecretStr, root_validator, validator
 
@@ -59,9 +59,14 @@ class Settings(BaseSettings):
 
     # TOOLS
 
+    # web scraping
+    html_parsing_fn: Callable = Field(None)
+    keyword_extraction_fn: Callable = Field(None)
+
     # chroma
     chroma_server_host: str = Field(None)
     chroma_server_http_port: int = Field(None)
+    chroma_default_topic: str = Field("marvin")
 
     # discourse
     discourse_help_category_id: int = Field(None)

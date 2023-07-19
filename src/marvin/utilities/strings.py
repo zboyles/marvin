@@ -1,6 +1,9 @@
+import hashlib
 import inspect
 import re
 from datetime import datetime
+from functools import lru_cache
+from typing import Callable, Union
 from zoneinfo import ZoneInfo
 
 import tiktoken
@@ -29,6 +32,7 @@ jinja_env = Environment(
     lstrip_blocks=True,
     auto_reload=True,
     undefined=StrictUndefined,
+    enable_async=True,
 )
 
 jinja_env.globals.update(
@@ -94,6 +98,15 @@ def condense_newlines(text: str) -> str:
 
 
 def html_to_content(html: str) -> str:
+    if marvin.settings.html_parsing_fn is not None:
+        if isinstance(marvin.settings.html_parsing_fn, Callable):
+            return marvin.settings.html_parsing_fn(html)
+        else:
+            raise ValueError(
+                "`html_parsing_fn` must be a callable, not"
+                f" {type(marvin.settings.html_parsing_fn)}"
+            )
+
     from bs4 import BeautifulSoup
 
     soup = BeautifulSoup(html, "html.parser")
@@ -105,8 +118,10 @@ def html_to_content(html: str) -> str:
     # Get text
     text = soup.get_text()
 
-    # Condense newlines
-    return condense_newlines(text)
+    # Replace multiple newline characters with a single newline
+    text = re.sub(r"\n+", "\n", text)
+
+    return text
 
 
 def convert_md_links_to_slack(text) -> str:
@@ -118,3 +133,66 @@ def convert_md_links_to_slack(text) -> str:
     slack_text = re.sub(MD_LINK_REGEX, to_slack_link, text)
 
     return slack_text
+
+
+@lru_cache(maxsize=2048)
+def hash_text(*text: str) -> str:
+    m = hashlib.sha256()
+    for t in text:
+        bs = t.encode() if not isinstance(t, bytes) else t
+        m.update(bs)
+    return m.hexdigest()
+
+
+def rm_html_comments(text: str) -> str:
+    return re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+
+
+def rm_text_after(text: str, substring: str) -> str:
+    return (
+        text[: start + len(substring)]
+        if (start := text.find(substring)) != -1
+        else text
+    )
+
+
+def split_text(
+    text: str,
+    chunk_size: int,
+    chunk_overlap: float = None,
+    last_chunk_threshold: float = None,
+    return_index: bool = False,
+) -> Union[str, tuple[str, int]]:
+    """
+    Split a text into a list of strings. Chunks are split by tokens.
+
+    Args:
+        text (str): The text to split.
+        chunk_size (int): The number of tokens in each chunk.
+        chunk_overlap (float): The fraction of overlap between chunks.
+        last_chunk_threshold (float): If the last chunk is less than this fraction of
+            the chunk_size, it will be added to the prior chunk
+        return_index (bool): If True, return a tuple of (chunk, index) where
+            index is the character index of the start of the chunk in the original text.
+    """
+    if chunk_overlap is None:
+        chunk_overlap = 0.1
+    if chunk_overlap < 0 or chunk_overlap > 1:
+        raise ValueError("chunk_overlap must be between 0 and 1")
+    if last_chunk_threshold is None:
+        last_chunk_threshold = 0.25
+
+    tokens = tokenize(text)
+
+    chunks = []
+    for i in range(0, len(tokens), chunk_size - int(chunk_overlap * chunk_size)):
+        chunks.append((tokens[i : i + chunk_size], len(detokenize(tokens[:i]))))
+
+    # if the last chunk is too small, merge it with the previous chunk
+    if len(chunks) > 1 and len(chunks[-1][0]) < chunk_size * last_chunk_threshold:
+        chunks[-2][0].extend(chunks.pop(-1)[0])
+
+    if return_index:
+        return [(detokenize(chunk), index) for chunk, index in chunks]
+    else:
+        return [detokenize(chunk) for chunk, _ in chunks]

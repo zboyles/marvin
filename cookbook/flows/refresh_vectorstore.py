@@ -1,18 +1,19 @@
 import re
 from datetime import timedelta
+from typing import Any
 
 import marvin
-from marvin.loaders.base import Loader
-from marvin.loaders.discourse import DiscourseLoader
 from marvin.loaders.github import GitHubRepoLoader
 from marvin.loaders.openapi import OpenAPISpecLoader
 from marvin.loaders.web import HTMLLoader, SitemapLoader
-from marvin.utilities.documents import Document
+from marvin.utilities.documents import Document, document_to_excerpts
 from marvin.utilities.logging import get_logger as get_marvin_logger
+from marvin.vectorstores.chroma import Chroma
 from prefect import flow, task
 from prefect.blocks.core import Block
 from prefect.logging.loggers import forward_logger_to_prefect
 from prefect.tasks import task_input_hash
+from prefect.utilities.annotations import quote
 
 # Discourse categories
 SHOW_AND_TELL_CATEGORY_ID = 26
@@ -51,7 +52,7 @@ prefect_loaders = [
     ),
     GitHubRepoLoader(
         repo="prefecthq/prefect",
-        include_globs=["**/*.py"],
+        include_globs=["README.md", "RELEASE-NOTES.md"],
         exclude_globs=[
             "tests/**/*",
             "docs/**/*",
@@ -60,18 +61,14 @@ prefect_loaders = [
             "**/_version.py",
         ],
     ),
-    GitHubRepoLoader(
-        repo="prefecthq/prefect",
-        include_globs=["release-notes.md"],
-    ),
-    DiscourseLoader(
-        url="https://discourse.prefect.io",
-        n_topic=500,
-        include_topic_filter=include_topic_filter,
-    ),
+    # DiscourseLoader(
+    #     url="https://discourse.prefect.io",
+    #     n_topic=500,
+    #     include_topic_filter=include_topic_filter,
+    # ),
     GitHubRepoLoader(
         repo="prefecthq/prefect-recipes",
-        include_globs=["flows-advanced/**/*.py"],
+        include_globs=["flows-advanced/**/*.py", "README.md"],
     ),
     SitemapLoader(
         urls=["https://www.prefect.io/sitemap.xml"],
@@ -127,30 +124,38 @@ def keyword_extraction_fn(text: str) -> list[str]:
     cache_expiration=timedelta(days=1),
     task_run_name="Run {loader.__class__.__name__}",
 )
-async def run_loader(loader: Loader) -> list[Document]:
-    return await loader.load()
+async def run_loader(loader: Any) -> list[Document]:
+    return [
+        doc
+        for documents in await loader.load()
+        for doc in await document_to_excerpts(documents)
+    ]
 
 
 @flow(name="Update Marvin's Knowledge", log_prints=True)
-async def update_marvin_knowledge(topic_name: str | None = None):
+async def update_marvin_knowledge(collection_name: str = "marvin"):
     """Flow updating Marvin's knowledge with info from the Prefect community."""
     forward_logger_to_prefect(get_marvin_logger())
 
     marvin.settings.html_parsing_fn = html_parser_fn
     marvin.settings.keyword_extraction_fn = keyword_extraction_fn
 
-    await set_chroma_settings()
-
     documents = [
         doc
-        for future in await run_loader.map(prefect_loaders)
+        for future in await run_loader.map(quote(prefect_loaders))
         for doc in await future.result()
     ]
 
-    print(documents[0])
+    async with Chroma(collection_name) as chroma:
+        # wipe the collection
+        await chroma.delete()
+        # add the documents
+        n_docs = await chroma.add(documents)
+
+        print(f"Added {n_docs} documents to the {collection_name} collection.")
 
 
 if __name__ == "__main__":
     import asyncio
 
-    asyncio.run(update_marvin_knowledge())
+    asyncio.run(update_marvin_knowledge("prefect"))

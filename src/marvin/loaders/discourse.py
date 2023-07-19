@@ -140,7 +140,7 @@ class DiscourseLoader(Loader):
 
             all_posts = []
             for topic in filtered_topics:
-                self.logger.info(
+                self.logger.debug(
                     f"Fetching posts for retrieved topic {topic['title']!r}"
                 )
                 posts = await self._get_posts_for_topic(topic["id"])

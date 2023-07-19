@@ -1,5 +1,4 @@
 import asyncio
-import json
 from typing import Optional
 
 import httpx
@@ -7,14 +6,17 @@ from typing_extensions import Literal
 
 import marvin
 from marvin.tools import Tool
-from marvin.utilities.embeddings import create_openai_embeddings
+from marvin.vectorstores.chroma import Chroma
 
 QueryResultType = Literal["documents", "distances", "metadatas"]
 
 
 async def list_collections() -> list[dict]:
     async with httpx.AsyncClient() as client:
-        chroma_api_url = f"http://{marvin.settings.chroma_server_host}:{marvin.settings.chroma_server_http_port}"
+        chroma_api_url = (
+            f"http://{marvin.settings.chroma.chroma_server_host}"
+            f":{marvin.settings.chroma.chroma_server_http_port}"
+        )
         response = await client.get(
             f"{chroma_api_url}/api/v1/collections",
         )
@@ -25,48 +27,31 @@ async def list_collections() -> list[dict]:
 
 async def query_chroma(
     query: str,
-    collection: str = "marvin",
     n_results: int = 5,
+    max_characters: int = 2000,
+    collection: Optional[str] = None,
     where: Optional[dict] = None,
     where_document: Optional[dict] = None,
     include: Optional[list[QueryResultType]] = None,
-    max_characters: int = 2000,
 ) -> str:
-    query_embedding = (await create_openai_embeddings([query]))[0]
+    if not include:
+        include = ["documents"]
 
-    collection_ids = [
-        c["id"] for c in await list_collections() if c["name"] == collection
-    ]
+    print(collection)
 
-    if len(collection_ids) == 0:
-        return f"Collection {collection} not found."
-
-    collection_id = collection_ids[0]
-
-    async with httpx.AsyncClient() as client:
-        chroma_api_url = f"http://{marvin.settings.chroma_server_host}:{marvin.settings.chroma_server_http_port}"
-
-        response = await client.post(
-            f"{chroma_api_url}/api/v1/collections/{collection_id}/query",
-            data=json.dumps(
-                {
-                    "query_embeddings": [query_embedding],
-                    "n_results": n_results,
-                    "where": where or {},
-                    "where_document": where_document or {},
-                    "include": include or ["documents"],
-                }
-            ),
-            headers={"Content-Type": "application/json"},
+    async with Chroma(
+        collection or marvin.settings.chroma_default_collection
+    ) as chroma:
+        query_result = await chroma.query(
+            query_texts=[query],
+            where=where,
+            where_document=where_document,
+            n_results=n_results,
+            include=include,
         )
 
-    response.raise_for_status()
-
-    return "\n".join(
-        [
-            f"{i+1}. {', '.join(excerpt)}"
-            for i, excerpt in enumerate(response.json()["documents"])
-        ]
+    return "\n\n".join(
+        excerpt for excerpts in query_result["documents"] for excerpt in excerpts
     )[:max_characters]
 
 
@@ -80,15 +65,21 @@ class QueryChroma(Tool):
     async def run(
         self,
         query: str,
-        collection: str = "marvin",
+        collection: Optional[str] = None,
         n_results: int = 5,
         where: Optional[dict] = None,
         where_document: Optional[dict] = None,
         include: Optional[list[QueryResultType]] = None,
         max_characters: int = 2000,
     ) -> str:
-        return await query_chroma(
-            query, collection, n_results, where, where_document, include, max_characters
+        return query_chroma(
+            query=query,
+            n_results=n_results,
+            max_characters=max_characters,
+            collection=collection,
+            where=where,
+            where_document=where_document,
+            include=include,
         )
 
 
@@ -102,23 +93,23 @@ class MultiQueryChroma(Tool):
     async def run(
         self,
         queries: list[str],
-        collection: str = "marvin",
+        collection: Optional[str] = None,
         n_results: int = 5,
         where: Optional[dict] = None,
         where_document: Optional[dict] = None,
         include: Optional[list[QueryResultType]] = None,
-        max_characters: int = 2000,
+        max_characters: int = 3000,
     ) -> str:
         coros = [
             query_chroma(
-                query,
-                collection,
-                n_results,
-                where,
-                where_document,
-                include,
-                max_characters // len(queries),
+                query=query,
+                n_results=n_results,
+                max_characters=max_characters // len(queries),
+                collection=collection,
+                where=where,
+                where_document=where_document,
+                include=include,
             )
             for query in queries
         ]
-        return "\n\n".join(await asyncio.gather(*coros, return_exceptions=True))
+        return "\n\n".join(await asyncio.gather(*coros))

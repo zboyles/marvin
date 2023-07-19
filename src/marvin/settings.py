@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Callable, Literal, Union
+from typing import Any, Callable, Literal, Union
 
 from pydantic import BaseSettings, Field, SecretStr, root_validator, validator
 
@@ -47,6 +47,18 @@ class AnthropicSettings(MarvinBaseSettings):
     api_key: SecretStr = None
 
 
+class ChromaSettings(MarvinBaseSettings):
+    """Provider-specific settings. Only some of these will be relevant to users."""
+
+    chroma_db_impl: str = Field(None)
+    chroma_server_host: str = Field("localhost")
+    chroma_server_http_port: int = Field(8000)
+    is_persistent: bool = Field(True)
+
+    def __getitem__(self, key: str) -> Any:
+        return getattr(self, key)
+
+
 class Settings(MarvinBaseSettings):
     """Marvin settings"""
 
@@ -88,9 +100,9 @@ class Settings(MarvinBaseSettings):
     keyword_extraction_fn: Callable = Field(None)
 
     # chroma
-    chroma_server_host: str = Field(None)
-    chroma_server_http_port: int = Field(None)
-    chroma_default_topic: str = Field("marvin")
+    chroma: ChromaSettings = Field(default_factory=ChromaSettings)
+    chroma_default_collection: str = "marvin"
+    embeddings_model: str = "text-embedding-ada-002"
 
     # discourse
     discourse_help_category_id: int = Field(None)

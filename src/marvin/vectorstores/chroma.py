@@ -8,26 +8,20 @@ from chromadb.errors import IDAlreadyExistsError
 import marvin
 from marvin.utilities.async_utils import run_async
 from marvin.utilities.documents import Document
+from marvin.vectorstores.base import Vectorstore
 
 
 @lru_cache
 def get_client() -> "chromadb.Client":
-    import chromadb
-
-    return chromadb.HttpClient(
-        host=marvin.settings.chroma.chroma_server_host,
-        port=marvin.settings.chroma.chroma_server_http_port,
+    return chromadb.Client(
+        # chroma 🤝 pydantic 🤝 marvin
+        settings=chromadb.Settings(**marvin.settings.chroma.dict())
     )
 
 
-class Chroma:
+class Chroma(Vectorstore):
     """
     A wrapper for chromadb.Client - can be used as a context manager
-
-    Example:
-        ```python async with Chroma() as chroma:
-            await chroma.add([Document(...), ...])
-        ```
     """
 
     def __init__(
@@ -47,13 +41,6 @@ class Chroma:
         )
         self._in_context = False
 
-    async def __aenter__(self):
-        self._in_context = True
-        return self
-
-    async def __aexit__(self, exc_type, exc_value, traceback):
-        self._in_context = False
-
     async def delete(
         self,
         ids: list[str] = None,
@@ -66,9 +53,6 @@ class Chroma:
             where=where,
             where_document=where_document,
         )
-
-    async def delete_collection(self, collection_name: str):
-        await run_async(self.client.delete_collection, collection_name=collection_name)
 
     async def add(self, documents: list[Document]) -> int:
         try:
@@ -114,3 +98,17 @@ class Chroma:
             documents=[document.text for document in documents],
             metadatas=[document.metadata.dict() for document in documents],
         )
+
+    def ok(self):
+        try:
+            response = self.client.get_version()
+        except Exception as e:
+            marvin.utilities.logging.get_logger().error(
+                f"Cannot connect to Chroma: {e}"
+            )
+        if response:
+            marvin.utilities.logging.get_logger().debug(
+                f"Connected to Chroma v{response}"
+            )
+            return True
+        return False

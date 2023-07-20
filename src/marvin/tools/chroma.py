@@ -1,7 +1,6 @@
 import asyncio
 from typing import Optional
 
-import httpx
 from typing_extensions import Literal
 
 import marvin
@@ -9,20 +8,6 @@ from marvin.tools import Tool
 from marvin.vectorstores.chroma import Chroma
 
 QueryResultType = Literal["documents", "distances", "metadatas"]
-
-
-async def list_collections() -> list[dict]:
-    async with httpx.AsyncClient() as client:
-        chroma_api_url = (
-            f"http://{marvin.settings.chroma.chroma_server_host}"
-            f":{marvin.settings.chroma.chroma_server_http_port}"
-        )
-        response = await client.get(
-            f"{chroma_api_url}/api/v1/collections",
-        )
-
-    response.raise_for_status()
-    return response.json()
 
 
 async def query_chroma(

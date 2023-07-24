@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Callable, Literal, Optional, TypeVar, Union
+from typing import Callable, Literal, Optional, Type, TypeVar, Union
 
 from openai import ChatCompletion as OpenAIChatCompletion
 from pydantic import BaseModel
@@ -36,6 +36,12 @@ ResponseType = TypeVar("ResponseType", bound=OpenAIResponse)
 StateType = TypeVar("StateType", bound=OpenAIState)
 
 
+class OpenAIConfig(BaseModel):
+    request_type: RequestType = OpenAIRequest
+    response_type: ResponseType = OpenAIResponse
+    state_type: StateType = OpenAIState
+
+
 def has_no_function_call(State: OpenAIState) -> bool:
     if State.last_response is None:
         return True
@@ -46,9 +52,8 @@ def has_no_function_call(State: OpenAIState) -> bool:
 
 
 class ChatCompletion(OpenAIChatCompletion, AbstractChatCompletion):
-    def __new__(cls, *args, typed=True, **kwargs):
-        config = cls.Config()
-
+    def __new__(cls, *args, config: Type[OpenAIConfig] = OpenAIConfig, **kwargs):
+        config = config()
         default_params = config.request_type(**kwargs)
 
         subclass = type(
@@ -58,7 +63,6 @@ class ChatCompletion(OpenAIChatCompletion, AbstractChatCompletion):
                 "__defaults__": default_params,
                 "__functions__": default_params.functions,
                 "state": config.state_type,
-                "stop_condition": config.stop_condition,
                 "request": config.request_type,
                 "response": config.response_type,
                 "create": partial(super().create, **default_params.dict()),
@@ -103,15 +107,9 @@ class ChatCompletion(OpenAIChatCompletion, AbstractChatCompletion):
         function_call: Optional[
             Union[dict[Literal["name"], str], Literal["auto"]]
         ] = None,
+        stop_condition: Callable[[StateType], bool] = has_no_function_call,
     ) -> StateType:
         State = cls.complete(
             messages=messages, functions=functions, function_call=function_call
         )
-
-        return State
-
-    class Config(BaseModel):
-        request_type: RequestType = OpenAIRequest
-        response_type: ResponseType = OpenAIResponse
-        state_type: StateType = OpenAIState
-        stop_condition: Callable[StateType, bool] = has_no_function_call
+        return [State, State.complete()]

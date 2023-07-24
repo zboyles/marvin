@@ -12,24 +12,26 @@ class Role(StrEnum):
     SYSTEM = "system"
 
 
+class FunctionCall(BaseModel):
+    name: str
+    arguments: str
+
+
 class Message(BaseModel):
     role: Role = Role("user")
     content: Optional[str] = None
     name: Optional[str] = None
+    function_call: Optional[FunctionCall] = None
 
     def __init__(self, content: str = None, *args, **kwargs):
         super().__init__(content=content, **kwargs)
 
     def dict(self, *args, exclude_none=True, **kwargs):
-        response = super().dict(*args, **kwargs, exclude_none=exclude_none)
-        if self.content is None:
-            response["content"] = ""
+        if self.function_call:
+            response = super().dict(*args, **kwargs, exclude_none=exclude_none)
+        else:
+            response = super().dict(*args, **kwargs, exclude_none=exclude_none)
         return response
-
-
-class FunctionCall(BaseModel):
-    name: str
-    arguments: str
 
 
 class Function:
@@ -122,7 +124,6 @@ class AbstractResponse(abc.ABC):
 
 class BaseResponse(AbstractResponse, Message):
     function_call: Optional[FunctionCall] = None
-    function: Optional[Callable] = None
 
     @functools.singledispatchmethod
     def __init__(self, content: Union[str, dict], *args, **kwargs):
@@ -185,7 +186,7 @@ class BaseState(AbstractState, BaseModel):
 
         # Parse the arguments of the function call
         result = fn.parse_raw(self.last_response.function_call.arguments)
-
+        print(fn.__name__, fn.model.name)
         return {"name": fn.model.name, "content": result, "role": Role.FUNCTION}
 
     def messages(self, *args, evaluate_function=True, **kwargs):

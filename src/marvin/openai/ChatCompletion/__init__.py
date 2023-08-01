@@ -8,11 +8,9 @@ from operator import itemgetter
 from marvin.utilities.module_loading import import_string
 import warnings
 import copy
-from marvin.types.request import Request as BaseRequest
-from marvin.engine import ChatCompletionBase
 
 
-class Request(BaseRequest):
+class Request(BaseSettings):
     """
     This is a class for creating Request objects to interact with the GPT-3 API.
     The class contains several configurations and validation functions to ensure
@@ -23,11 +21,89 @@ class Request(BaseRequest):
     model: str = "gpt-3.5-turbo"  # the model used by the GPT-3 API
     temperature: float = 0.8  # the temperature parameter used by the GPT-3 API
     api_key: str = Field(default_factory=settings.openai.api_key.get_secret_value)
+    messages: Optional[List[dict[str, str]]] = None  # messages to send to the API
+    functions: List[Union[dict, Callable]] = None  # functions to be used in the request
+    function_call: Optional[Union[dict[Literal["name"], str], Literal["auto"]]] = None
+
+    # Internal Marvin Attributes to be excluded from the data sent to the API
+    response_model: Optional[Type[BaseModel]] = Field(default=None)
+    evaluate_function_call: bool = Field(default=False)
 
     class Config:
         exclude = {"response_model"}
         exclude_none = True
         extra = Extra.allow
+
+    @root_validator(pre=True)
+    def handle_response_model(cls, values):
+        """
+        This function validates and handles the response_model attribute.
+        If a response_model is provided, it creates a function from the model
+        and sets it as the function to call.
+        """
+        response_model = values.get("response_model")
+        if response_model:
+            fn = Function.from_model(response_model)
+            values["functions"] = [fn]
+            values["function_call"] = {"name": fn.__name__}
+        return values
+
+    @validator("functions", each_item=True)
+    def validate_function(cls, fn):
+        """
+        This function validates the functions attribute.
+        If a Callable is provided, it wraps it with the Function class.
+        """
+        if isinstance(fn, Callable):
+            fn = Function(fn)
+        return fn
+
+    def __or__(self, config):
+        """
+        This method is used to merge two Request objects.
+        If the attribute is a list, the lists are concatenated.
+        Otherwise, the attribute from the provided config is used.
+        """
+
+        touched = config.dict(exclude_unset=True, serialize_functions=False)
+
+        fields = list(
+            set(
+                [
+                    # We exclude none fields from defaults.
+                    *self.dict(exclude_none=True, serialize_functions=False).keys(),
+                    # We exclude unset fields from the provided config.
+                    *config.dict(exclude_unset=True, serialize_functions=False).keys(),
+                ]
+            )
+        )
+
+        for field in fields:
+            if isinstance(getattr(self, field, None), list):
+                merged = (getattr(self, field, []) or []) + (
+                    getattr(config, field, []) or []
+                )
+                setattr(self, field, merged)
+            else:
+                setattr(self, field, touched.get(field, getattr(self, field, None)))
+        return self
+
+    def merge(self, **kwargs):
+        warnings.warn(
+            "This is deprecated. Use the | operator instead.", DeprecationWarning
+        )
+        return self | self.__class__(**kwargs)
+
+    def functions_schema(self, *args, **kwargs):
+        """
+        This method generates a list of schemas for all functions in the request.
+        If a function is callable, its model's schema is returned.
+        Otherwise, the function itself is returned.
+        """
+        return [
+            fn.model.schema() if isinstance(fn, Callable) else fn
+            for fn in self.functions or []
+        ]
 
     def dict(self, *args, serialize_functions=True, exclude=None, **kwargs):
         """
@@ -35,12 +111,14 @@ class Request(BaseRequest):
         If the functions attribute is present and serialize_functions is True,
         the functions' schemas are also included.
         """
-
-        # This identity function is here for no reason except to show
-        # readers that custom adapters need only override the dict method.
-        return super().dict(
-            *args, serialize_functions=serialize_functions, exclude=exclude, **kwargs
-        )
+        exclude = exclude or {}
+        if serialize_functions:
+            exclude["evaluate_function_call"] = True
+            exclude["response_model"] = True
+        response = super().dict(*args, **kwargs, exclude=exclude)
+        if response.get("functions") and serialize_functions:
+            response.update({"functions": self.functions_schema()})
+        return response
 
 
 class Response(BaseModel):
@@ -138,7 +216,7 @@ class Response(BaseModel):
         return self.raw.__repr__(*args, **kwargs)
 
 
-class OpenAIChatCompletion(ChatCompletionBase):
+class ChatCompletionBase(BaseModel):
     """
     This class is used to create and handle chat completions from the API.
     It provides several utility functions to create the request, send it to the API,
@@ -146,12 +224,59 @@ class OpenAIChatCompletion(ChatCompletionBase):
     """
 
     _module: str = "openai.ChatCompletion"  # the module used to interact with the API
-    _request: str = "marvin.openai.ChatCompletion.Request"
-    _response: str = "marvin.openai.ChatCompletion.Response"
+    _config: str = "marvin.openai.ChatCompletion.Request"
     defaults: Optional[dict] = Field(None, repr=False)  # default configuration values
 
+    def __init__(self, module_path: str = None, config_path: str = None, **kwargs):
+        super().__init__(_module=module_path, _config=config_path, defaults=kwargs)
 
-ChatCompletion = OpenAIChatCompletion()
+    @property
+    def model(self):
+        """
+        This property imports and returns the API model.
+        """
+        return import_string(self._module)
+
+    def config(self, *args, **kwargs) -> Request:
+        """
+        This method imports and returns a configuration object.
+        """
+        return import_string(self._config)(*args, **(kwargs or self.defaults or {}))
+
+    def create(self=None, *args, **kwargs):
+        """
+        This method creates a request and sends it to the API.
+        It returns a Response object with the raw response and the request.
+        """
+        request = self.config() | self.config(**kwargs)
+        payload = request.dict(exclude_none=True, exclude_unset=True)
+        response = Response(self.model.create(**payload), request=request)
+        if request.evaluate_function_call and response.function_call:
+            return response.call_function(as_message=True)
+        return response
+
+    async def acreate(self, *args, **kwargs):
+        """
+        This method is an asynchronous version of the create method.
+        It creates a request and sends it to the API asynchronously.
+        It returns a Response object with the raw response and the request.
+        """
+        request = self.config() | self.config(**kwargs)
+        payload = request.dict(exclude_none=True, exclude_unset=True)
+        response = Response(await self.model.acreate(**payload), request=request)
+        if request.evaluate_function_call and response.function_call:
+            return response.call_function(as_message=True)
+        return response
+
+    def __call__(self, *args, **kwargs):
+        self = copy.deepcopy(self)
+        config = self.config()
+        passed = self.__class__(**kwargs).config()
+        self.defaults = (config | passed).dict(serialize_functions=False)
+        return self
+
+
+ChatCompletion = ChatCompletionBase()
 
 # This is a legacy class that is used to create a ChatCompletion object.
 # It is deprecated and will be removed in a future release.

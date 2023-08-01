@@ -9,8 +9,6 @@ from .components import (
     AIModelFactory,
 )
 
-from .core.ChatCompletion import ChatCompletion
-
 __all__ = [
     "ai_classifier",
     "ai_fn",

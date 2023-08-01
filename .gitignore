@@ -28,7 +28,6 @@ MANIFEST
 
 # All node modules in any directory
 node_modules/
-_docs/
 
 
 # PyInstaller

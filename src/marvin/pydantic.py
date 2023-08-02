@@ -9,8 +9,11 @@ if not PYDANTIC_V2:
         Extra,
         Field,
         PrivateAttr,
+        PyObject,
         SecretStr,
+        root_validator,
         validate_arguments,
+        validator,
     )
     from pydantic.main import ModelMetaclass
 
@@ -22,3 +25,6 @@ if not PYDANTIC_V2:
     Extra = Extra
     PrivateAttr = PrivateAttr
     validate_arguments = validate_arguments
+    validator = validator
+    root_validator = root_validator
+    PyObject = PyObject
